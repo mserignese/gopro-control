@@ -21,12 +21,11 @@ class GoPro:
     udp_port = 8554
 
     def __init__(self, config: configparser.ConfigParser) -> None:
-        self.name = config['gopro']['name']
-        self.password = config['gopro']['password']
+        self.ap_ssid = config['gopro']['ap_ssid']
+        self.ap_password = config['gopro']['ap_password']
         self.ip_address = config['gopro']['ip_address']
         self.mac_address = config['gopro']['mac_address']
         self.keepalive_period = config['gopro'].getint('keepalive_period')
-        self.url = 'http://' + self.ip_address + '/gp/gpControl'
 
 @enum.unique
 class CommandEnum(enum.Enum):
@@ -110,7 +109,7 @@ class Message:
             return reply
 
     def _build_url(self, gopro: GoPro) -> str:
-        return f'{gopro.url}{Command.definitions[self.command]["template"].format(*self.args)}'
+        return f'http://{gopro.ip_address}/gp/gpControl{Command.definitions[self.command]["template"].format(*self.args)}'
 
     def __repr__(self) -> str:
         return f'{self.command} {self.args}' 
@@ -149,7 +148,7 @@ def main() -> int:
             continue
         reply = message.send_to(gopro)
         if reply:
-            print(f'got reply: {reply}')
+            print(reply)
 
         if message.command == CommandEnum.STREAM:
             subprocess.run([f'{config["gpc"]["mpv-path"]}', '--profile=low-latency', f'udp://{gopro.ip_address}:{gopro.udp_port}'])
