@@ -1,1 +1,3 @@
-bin/*.exe
+bin
+stream
+run.sh
