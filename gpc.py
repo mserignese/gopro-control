@@ -15,7 +15,6 @@ import threading
 import time
 
 CONFIG_FILE = 'gpc.conf'
-DEBUG = False
 
 class GoPro:
     udp_port = 8554
@@ -50,9 +49,9 @@ class Command:
             CommandEnum.DEFAULT_BOOT_MODE: {'arity': 1, 'template': '/setting/53/{}', 'mapping': {'video': '0', 'photo': '1', 'multishot': '2'}},
             CommandEnum.DISPLAY_ON: {'arity': 0, 'template': '/setting/58/1'},
             CommandEnum.DISPLAY_OFF: {'arity': 0, 'template': '/setting/58/0'},
-            CommandEnum.GET_INFO: {'arity': 0, 'template': ''},
-            CommandEnum.GET_STATUS: {'arity': 0, 'template': '/status'},
-            CommandEnum.GET_BATTERY_LEVEL: {'arity': 0, 'template': '/status'},
+            CommandEnum.GET_INFO: {'arity': 0, 'template': '', 'want_result': True},
+            CommandEnum.GET_STATUS: {'arity': 0, 'template': '/status', 'want_result': True},
+            CommandEnum.GET_BATTERY_LEVEL: {'arity': 0, 'template': '/status', 'want_result': True},
             CommandEnum.POWER_OFF: {'arity': 0, 'template': '/command/system/sleep'},
             CommandEnum.RECORD_START: {'arity': 0, 'template': '/command/shutter?p=1'},
             CommandEnum.RECORD_STOP: {'arity': 0, 'template': '/command/shutter?p=0'},
@@ -93,20 +92,25 @@ class Message:
 
     def send_to(self, gopro: GoPro) -> str:
         if self.command == CommandEnum.WAKE:
-            debug_print(f'WOL {gopro.mac_address}')
+            Debug.print(f'WOL {gopro.mac_address}')
             send_wake_on_lan(gopro)
             return ''
         if self.command == CommandEnum.GET_BATTERY_LEVEL:
             return Message(CommandEnum.GET_STATUS).send_to(gopro).json()['status']['2']
         else:
-            debug_print("GET " + self._build_url(gopro))
+            Debug.print("GET " + self._build_url(gopro))
             reply = requests.get(self._build_url(gopro))
-            if self.command == CommandEnum.STREAM:
-                reply = None
-            return reply
+            if self._want_result():
+                return reply
+            else:
+                return None
 
     def _build_url(self, gopro: GoPro) -> str:
         return f'http://{gopro.ip_address}/gp/gpControl{Command.definitions[self.command]["template"].format(*self.args)}'
+
+    def _want_result(self) -> bool:
+        definition = Command.definitions[self.command]
+        return 'want_result' in definition and definition['want_result']
 
     def __repr__(self) -> str:
         return f'{self.command} {self.args}' 
@@ -117,31 +121,31 @@ def main() -> int:
         with open(CONFIG_FILE, "r") as config_file:
             config.read_file(config_file)
     except IOError:
-        debug_print(f"{CONFIG_FILE}: configuration file not found.")
+        Debug.print(f"{CONFIG_FILE}: configuration file not found.")
         sys.exit(1)
     if config['gpc'].getboolean('debug', fallback=False):
-        enable_debug()
+        Debug.enable()
 
     gopro = GoPro(config)
     send_wake_on_lan(gopro)
     keepalive_thread = threading.Thread(target=keepalive, args=(gopro,), daemon=True)
     keepalive_thread.start()
-    if debug_on(): 
+    if Debug.enabled(): 
         gopro_info = Message(CommandEnum.GET_INFO).send_to(gopro).json(strict=False)['info']
         gopro_battery_level = Message(CommandEnum.GET_BATTERY_LEVEL).send_to(gopro)
-        debug_print(f"Model:\t\t\t{gopro_info['model_name']} (model {gopro_info['model_number']})")
-        debug_print(f"Firmware:\t\t{gopro_info['firmware_version']}")
-        debug_print(f"Serial:\t\t\t{gopro_info['serial_number']}")
-        debug_print(f"AP SSID:\t\t{gopro_info['ap_ssid']}")
-        debug_print(f"AP MAC:\t\t\t{gopro_info['ap_mac']}")
-        debug_print(f"Battery level:\t\t{gopro_battery_level}")
+        Debug.print(f"Model:\t\t\t{gopro_info['model_name']} (model {gopro_info['model_number']})")
+        Debug.print(f"Firmware:\t\t{gopro_info['firmware_version']}")
+        Debug.print(f"Serial:\t\t\t{gopro_info['serial_number']}")
+        Debug.print(f"AP SSID:\t\t{gopro_info['ap_ssid']}")
+        Debug.print(f"AP MAC:\t\t\t{gopro_info['ap_mac']}")
+        Debug.print(f"Battery level:\t\t{gopro_battery_level}")
 
     for line in sys.stdin:
         command_text = line.strip()
         try:
             message = Message.from_text(command_text.split(' '))
         except ValueError as e:
-            debug_print(f'Error for "{command_text}": {e}')
+            Debug.print(f'Error for "{command_text}": {e}')
             continue
         reply = message.send_to(gopro)
         if reply:
@@ -167,16 +171,18 @@ def send_wake_on_lan(gopro: GoPro) -> None:
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.sendto(payload, (gopro.ip_address, GOPRO_WAKE_ON_LAN_PORT))
 
-def enable_debug() -> None:
-    global DEBUG
-    DEBUG = True
+class Debug:
+    _debug = bool()
 
-def debug_on() -> bool:
-    return DEBUG
+    def enabled() -> bool:
+        return Debug._debug
 
-def debug_print(message) -> None:
-    if debug_on():
-        print(message, file=sys.stderr)
+    def enable() -> None:
+        Debug._debug = True
+
+    def print(message: str) -> None:
+        if Debug.enabled():
+            print(message, file=sys.stderr)
 
 def signal_quit(signal, frame) -> None:
     sys.exit(0)
