@@ -102,10 +102,7 @@ class Message:
             debug_print("GET " + self._build_url(gopro))
             reply = requests.get(self._build_url(gopro))
             if self.command == CommandEnum.STREAM:
-                if reply.status_code == 200:
-                    reply = '1'
-                else:
-                    reply = '0'
+                reply = None
             return reply
 
     def _build_url(self, gopro: GoPro) -> str:
